@@ -102,7 +102,8 @@ fwx_init:
 		case "$$ROOTFS_SIZE" in ''|*[!0-9]*) ROOTFS_SIZE=0 ;; esac; \
 		[ "$$ROOTFS_SIZE" -gt 300 ] && EXPAND_ROOT=1 || EXPAND_ROOT=0; \
 		echo "EXPAND_ROOT=$$EXPAND_ROOT" >> "$$FEATURE_FILE"; \
-	fi
+	fi ;\
+	cp feeds_patches/* feeds/ -fr
 		
 # check prerequisites before starting to build
 prereq: fwx_init $(target/stamp-prereq) tmp/.prereq_packages
