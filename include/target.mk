@@ -75,6 +75,8 @@ DEFAULT_PACKAGES.router:=\
 	luci-app-fwx-session-stat \
 	luci-app-fwx-user-record \
 	luci-app-fwx-system \
+	luci-app-fwx-mac-blacklist \
+	luci-app-fwx-record-whitelist \
 	luci-app-ddns \
 	luci-app-upnp \
 	luci-app-autoreboot \
@@ -101,6 +103,7 @@ DEFAULT_PACKAGES.router:=\
 	ipset  \
 	kmod-pppol2tp \
 	kmod-dummy \
+	kmod-nft-fullcone \
 	ip-full
 
 ifneq ($(DUMP),)
