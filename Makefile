@@ -95,14 +95,18 @@ tmp/.prereq_packages: .config
 endif
 fwx_init:
 	@FEATURE_FILE="$(TOPDIR)/package/base-files/files/etc/product_feature"; \
+	[ -f "$$FEATURE_FILE" ] && sed -i '/^EXPAND_ROOT=/d' "$$FEATURE_FILE"; \
 	BOARD="$(CONFIG_TARGET_BOARD)"; ARCH="$(CONFIG_ARCH)"; \
 	if [ "$$BOARD" = "x86" ] || [ "$$ARCH" = "x86_64" ] || [ "$$ARCH" = "i386" ] || [ "$${BOARD#rockchip}" != "$$BOARD" ]; then \
-		[ -f "$$FEATURE_FILE" ] && sed -i '/^EXPAND_ROOT=/d' "$$FEATURE_FILE"; \
 		ROOTFS_SIZE="$(CONFIG_TARGET_ROOTFS_PARTSIZE)"; \
 		case "$$ROOTFS_SIZE" in ''|*[!0-9]*) ROOTFS_SIZE=0 ;; esac; \
 		[ "$$ROOTFS_SIZE" -gt 300 ] && EXPAND_ROOT=1 || EXPAND_ROOT=0; \
 		echo "EXPAND_ROOT=$$EXPAND_ROOT" >> "$$FEATURE_FILE"; \
-	fi ;\
+		echo "set EXPAND_ROOT=$$EXPAND_ROOT by rootfs size ($$ROOTFS_SIZE)"; \
+	else \
+		echo "EXPAND_ROOT=0" >> "$$FEATURE_FILE"; \
+		echo "reset EXPAND_ROOT to 0 $(CONFIG_TARGET_BOARD)"; \
+	fi; \
 	cp feeds_patches/* feeds/ -fr
 		
 # check prerequisites before starting to build
