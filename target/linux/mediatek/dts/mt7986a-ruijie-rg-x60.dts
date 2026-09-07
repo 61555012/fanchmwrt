@@ -86,6 +86,7 @@
 
 	gmac1: mac@1 {
 		compatible = "mediatek,eth-mac";
+        label = "lan1";   
 		reg = <1>;
 		phy-mode = "2500base-x";
 		phy-handle = <&phy15>;
@@ -240,17 +241,17 @@
 
 		port@1 {
 			reg = <1>;
-			label = "lan1";
+			label = "lan2";
 		};
 
 		port@2 {
 			reg = <2>;
-			label = "lan2";
+			label = "lan3";
 		};
 
 		port@3 {
 			reg = <3>;
-			label = "lan3";
+			label = "wan";
 		};
 
 		port@6 {
