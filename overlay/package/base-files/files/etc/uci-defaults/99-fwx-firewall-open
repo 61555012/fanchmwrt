@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# 默认放行策略：转发 / 输入 / 出站 全部 ACCEPT
+# 覆盖两种场景：全新刷机、以及 sysupgrade 保留配置升级
+
+[ -f /etc/config/firewall ] || exit 0
+
+# 全局默认策略
+uci -q set firewall.@defaults[0].input='ACCEPT'
+uci -q set firewall.@defaults[0].output='ACCEPT'
+uci -q set firewall.@defaults[0].forward='ACCEPT'
+
+# 逐个 zone 放行（含 lan / wan / wan6 以及用户自建 zone）
+for z in $(uci -q show firewall | sed -n 's/^\(firewall\.[^=]*\)=zone$/\1/p'); do
+	uci -q set "${z}.input=ACCEPT"
+	uci -q set "${z}.output=ACCEPT"
+	uci -q set "${z}.forward=ACCEPT"
+done
+
+uci -q commit firewall
+
+exit 0

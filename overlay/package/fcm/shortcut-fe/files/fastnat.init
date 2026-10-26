@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+
+START=19
+STOP=89
+
+start() {
+	local enabled dpi_compat
+
+	config_load fastnat
+	config_get_bool enabled global enabled 0
+	config_get_bool dpi_compat global dpi_compat 1
+	[ -e /sys/sfe_cm/enabled ] || modprobe shortcut-fe-cm
+	[ -w /sys/sfe_cm/enabled ] && [ -w /sys/sfe_cm/dpi_compat ] || return 1
+	if [ "$enabled" -eq 0 ]; then
+		printf '0\n' > /sys/sfe_cm/enabled || return 1
+	fi
+	printf '%s\n' "$dpi_compat" > /sys/sfe_cm/dpi_compat || return 1
+	printf '%s\n' "$enabled" > /sys/sfe_cm/enabled
+}
+
+reload() {
+	start
+}
+
+stop() {
+	[ -w /sys/sfe_cm/enabled ] || return 0
+	printf '0\n' > /sys/sfe_cm/enabled
+}

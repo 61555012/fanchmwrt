@@ -1,0 +1,162 @@
+diff -urN a/include/linux/netdevice.h b/include/linux/netdevice.h
+--- a/include/linux/netdevice.h	2026-10-21 14:26:39.931891161 +0800
++++ b/include/linux/netdevice.h	2026-10-21 14:50:52.379540978 +0800
+@@ -231,6 +231,11 @@
+ struct neigh_parms;
+ struct sk_buff;
+ 
++#ifdef CONFIG_SHORTCUT_FE
++/* A nonzero result means the callback consumed the skb. Protected by RCU. */
++extern int (*athrs_fast_nat_recv)(struct sk_buff *skb) __rcu;
++#endif
++
+ struct netdev_hw_addr {
+ 	struct list_head	list;
+ 	struct rb_node		node;
+diff -urN a/include/linux/skbuff.h b/include/linux/skbuff.h
+--- a/include/linux/skbuff.h	2026-10-21 14:26:39.935891170 +0800
++++ b/include/linux/skbuff.h	2026-10-21 14:50:52.383540960 +0800
+@@ -1013,6 +1013,11 @@
+ #endif
+ 	__u8			unreadable:1;
+ 	__u8			tc_depth:2;
++	
++#ifdef CONFIG_SHORTCUT_FE
++	__u8			fast_forwarded:1;
++#endif
++
+ #if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
+ 	__u16			tc_index;	/* traffic control index */
+ #endif
+@@ -4266,7 +4271,7 @@
+ }
+ 
+ /**
+- *	skb_needs_linearize - check if we need to linearize a given skb
++`` *	skb_needs_linearize - check if we need to linearize a given skb
+  *			      depending on the given device features.
+  *	@skb: socket buffer to check
+  *	@features: net device features
+diff -urN a/include/net/netfilter/nf_sfe.h b/include/net/netfilter/nf_sfe.h
+--- a/include/net/netfilter/nf_sfe.h	1970-01-01 08:00:00.000000000 +0800
++++ b/include/net/netfilter/nf_sfe.h	2026-10-21 14:50:52.387540941 +0800
+@@ -0,0 +1,11 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _NET_NF_SFE_H
++#define _NET_NF_SFE_H
++
++struct notifier_block;
++
++/* Atomic callbacks receive a borrowed nf_conn pointer and must not sleep. */
++int nf_sfe_register_destroy_notifier(struct notifier_block *nb);
++void nf_sfe_unregister_destroy_notifier(struct notifier_block *nb);
++
++#endif
+diff -urN a/net/core/dev.c b/net/core/dev.c
+--- a/net/core/dev.c	2026-10-21 14:26:39.935891170 +0800
++++ b/net/core/dev.c	2026-10-21 14:50:52.383540960 +0800
+@@ -5552,6 +5552,11 @@
+ }
+ EXPORT_SYMBOL_GPL(netdev_rx_handler_unregister);
+ 
++#ifdef CONFIG_SHORTCUT_FE
++int (*athrs_fast_nat_recv)(struct sk_buff *skb) __rcu __read_mostly;
++EXPORT_SYMBOL_GPL(athrs_fast_nat_recv);
++#endif
++
+ /*
+  * Limit the use of PFMEMALLOC reserves to those protocols that implement
+  * the special handling of PFMEMALLOC skbs.
+@@ -5690,6 +5695,25 @@
+ 			goto out;
+ 	}
+ 
++#ifdef CONFIG_SHORTCUT_FE
++	/* Preserve ingress policy, VLAN resolution and packet tap delivery. */
++	if (!pfmemalloc) {
++		int (*fast_recv)(struct sk_buff *skb);
++
++		fast_recv = rcu_dereference(athrs_fast_nat_recv);
++		if (fast_recv) {
++			if (pt_prev) {
++				ret = deliver_skb(skb, pt_prev, orig_dev);
++				pt_prev = NULL;
++			}
++			if (fast_recv(skb)) {
++				ret = NET_RX_SUCCESS;
++				goto out;
++			}
++		}
++	}
++#endif
++
+ 	rx_handler = rcu_dereference(skb->dev->rx_handler);
+ 	if (rx_handler) {
+ 		if (pt_prev) {
+diff -urN a/net/Kconfig b/net/Kconfig
+--- a/net/Kconfig	2026-10-21 14:26:39.935891170 +0800
++++ b/net/Kconfig	2026-10-21 14:50:52.383540960 +0800
+@@ -521,6 +521,15 @@
+ 	  migration of VMs with direct attached VFs by failing over to the
+ 	  paravirtual datapath when the VF is unplugged.
+ 
++config SHORTCUT_FE
++	bool "Shortcut Forwarding Engine receive hook"
++	depends on INET
++	help
++	  Provide the receive callback and skb forwarding marker used by the
++	  external QSDK Shortcut Forwarding Engine module. The callback runs
++	  after ingress processing and VLAN device resolution. Leave disabled
++	  unless the matching SFE module is built for this kernel.
++
+ config ETHTOOL_NETLINK
+ 	bool "Netlink interface for ethtool"
+ 	select DIMLIB
+diff -urN a/net/netfilter/nf_conntrack_core.c b/net/netfilter/nf_conntrack_core.c
+--- a/net/netfilter/nf_conntrack_core.c	2026-10-21 14:26:39.939891178 +0800
++++ b/net/netfilter/nf_conntrack_core.c	2026-10-21 14:50:52.387540941 +0800
+@@ -12,6 +12,8 @@
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+ 
+ #include <linux/types.h>
++#include <linux/notifier.h>
++#include <net/netfilter/nf_sfe.h>
+ #include <linux/netfilter.h>
+ #include <linux/module.h>
+ #include <linux/sched.h>
+@@ -708,6 +710,23 @@
+ #endif
+ }
+ 
++#ifdef CONFIG_SHORTCUT_FE
++/* A separate observer for SFE; ctnetlink retains its existing notifier slot. */
++static ATOMIC_NOTIFIER_HEAD(nf_sfe_destroy_chain);
++
++int nf_sfe_register_destroy_notifier(struct notifier_block *nb)
++{
++	return atomic_notifier_chain_register(&nf_sfe_destroy_chain, nb);
++}
++EXPORT_SYMBOL_GPL(nf_sfe_register_destroy_notifier);
++
++void nf_sfe_unregister_destroy_notifier(struct notifier_block *nb)
++{
++	atomic_notifier_chain_unregister(&nf_sfe_destroy_chain, nb);
++}
++EXPORT_SYMBOL_GPL(nf_sfe_unregister_destroy_notifier);
++#endif
++
+ bool nf_ct_delete(struct nf_conn *ct, u32 portid, int report)
+ {
+ 	struct nf_conn_tstamp *tstamp;
+@@ -716,6 +735,11 @@
+ 	if (test_and_set_bit(IPS_DYING_BIT, &ct->status))
+ 		return false;
+ 
++#ifdef CONFIG_SHORTCUT_FE
++	/* Notify once, even when no netlink event-cache extension exists. */
++	atomic_notifier_call_chain(&nf_sfe_destroy_chain, 1U << IPCT_DESTROY, ct);
++#endif
++
+ 	tstamp = nf_conn_tstamp_find(ct);
+ 	if (tstamp) {
+ 		s32 timeout = READ_ONCE(ct->timeout) - nfct_time_stamp;
