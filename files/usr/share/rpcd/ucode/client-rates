@@ -1,0 +1,30 @@
+'use strict';
+
+/*
+ * rpcd ucode 插件：只读 /tmp/client-rates.json
+ * 采样由 /etc/init.d/client-rates 的常驻进程负责，ubus 这里不做任何 IO 以外的计算，
+ * 保证 dashboard 每 5 秒轮询也不会给 CPU 添负担。
+ */
+
+import { readfile } from 'fs';
+
+function get() {
+	const s = readfile('/tmp/client-rates.json');
+
+	if (s == null)
+		return { ready: false, error: 'sampler not running' };
+
+	const d = json(s);
+
+	if (type(d) != 'object')
+		return { ready: false, error: 'bad json' };
+
+	d.ready = true;
+	return d;
+}
+
+return {
+	'luci.client-rates': {
+		get: { call: get }
+	}
+};

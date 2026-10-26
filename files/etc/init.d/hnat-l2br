@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+# 让 MediaTek HNAT 在 DSA 桥接 + WiFi(WARP) 场景下稳定工作，
+# 并给 client-rates 采样器准备确定的计数环境。
+#
+# 三个关键点：
+#   1. hook_toggle=enabled        —— 总开关，TurboACC 关掉加速时会写 0，这里按 uci 状态补回
+#   2. l2br_toggle=1              —— L2_BRIDGE HNAT 学习模式。这是 write-only 节点，重启必丢。
+#                                    不开时 HNAT 表项容易被建成哑表项（state=UNBIND / NSIP=0.0.0.0），
+#                                    统计会掉到只剩个位数百分比。
+#   3. hnat_setting 1 30 / 7 0    —— 绑定速率 30，且**关闭**「计数回写 nf_conntrack」。
+#                                    回写打开后 conntrack 里已经含 offload 流量，
+#                                    采样器再叠加 all_entry 就会重复计数（实测高估 3 倍）。
+
+START=95
+STOP=08
+
+start() {
+	[ -d /sys/kernel/debug/hnat ] || return 0
+
+	# 只有 TurboACC 里选了 MediaTek HNAT 才处理，避免用户主动关掉加速后又被我们打开
+	[ "$(uci -q get turboacc.config.fastpath)" = "mediatek_hnat" ] || return 0
+
+	echo "enabled" > /sys/kernel/debug/hnat/hook_toggle 2>/dev/null
+	echo 1 > /sys/kernel/debug/hnat/l2br_toggle 2>/dev/null
+	echo "1 30" > /sys/kernel/debug/hnat/hnat_setting 2>/dev/null
+	echo "7 0" > /sys/kernel/debug/hnat/hnat_setting 2>/dev/null
+
+	logger -t hnat-l2br "hook=enabled l2br=1 bind_rate=30 update_nfct=0"
+}
+
+stop() {
+	[ -w /sys/kernel/debug/hnat/l2br_toggle ] || return 0
+	echo 0 > /sys/kernel/debug/hnat/l2br_toggle 2>/dev/null
+}
+
+boot() { start; }
+
+# 接口热插拔 / 防火墙重载后补一次，避免被重置
+reload() { start; }

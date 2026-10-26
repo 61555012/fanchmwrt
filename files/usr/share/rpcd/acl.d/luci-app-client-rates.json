@@ -1,0 +1,11 @@
+{
+	"luci-app-client-rates": {
+		"description": "Grant access to client-rates statistics",
+		"read": {
+			"ubus": {
+				"luci.client-rates": [ "get" ]
+			}
+		},
+		"write": {}
+	}
+}

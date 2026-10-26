@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# client-rates：MT7986 PPE/HNAT 硬件加速下的逐设备流量统计
+#
+# 采样器与 fwx 控制器补丁随 files/ 一起进 rootfs（见仓库 README 的「流量统计」一节），
+# 这里只做一次性初始化：启用两个服务、关掉会导致重复计数的开关。
+#
+# 说明：服务本身由 procd 在 S95/S96 启动，这里只写 rc.d 链接，不在这里 start，
+#       避免和 rc.common 的启动顺序抢跑。
+#
+
+# 「HNAT 连接计数更新」打开后，驱动会把硬件计数回写 nf_conntrack；
+# 采样器再从 all_entry 取一遍就会重复计数（实测高估到 3 倍），统一关掉。
+uci -q set turboacc.config.fastpath_mh_update_nfct='0' 2>/dev/null
+uci -q commit turboacc 2>/dev/null
+
+/etc/init.d/hnat-l2br enable 2>/dev/null
+/etc/init.d/client-rates enable 2>/dev/null
+
+rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -rf /tmp/luci-modulecache/* 2>/dev/null
+
+exit 0
